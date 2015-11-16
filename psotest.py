@@ -6,15 +6,23 @@ import math
 
 
 dmn = 2
-searchRange = 5.12
+searchRange = 10
 c1 = c2 = 2.05
-w = 0.7298
+ki = 0.7298
+w = 0.8
 population = 30
-maxIterations = 30000
+maxIterations = 400000
 acceptableThreshold = 0
 deviation = 0.000001
-maxTestIterations = 100
+maxTestIterations = 30
+auto = False
+constricted = False
 
+if sys.argv[1] == "automate":
+	auto = True
+
+
+print sys.argv
 
 def rosenBrock(candidate):
 	summ = 0
@@ -36,31 +44,57 @@ def rastrigin(candidate):
 		summ += 10 + (x**2 - 10*math.cos(2*math.pi*x))
 	return summ
 
+def sphere(candidate):
+	summ = 0
+	for x in candidate:
+		summ += x**2
+	return summ
+
+def ackley(candidate):
+	squared = [x**2 for x in candidate]
+	p1 = -20 * math.exp(-0.2 * ((sum(squared)/len(squared))**0.5))
+
+	cosined = [math.cos(2*math.pi*x) for x in candidate]
+	p2 = math.exp(sum(cosined)/len(cosined))
+
+	f = p1 - p2 + 20 + math.exp(1)
+
+	return f
+
+
 class Drone:
 	v = []
 	pos = []
 	pB = []
 	lB = []
+	leftNeighbor = 0
+	rightNeighbor = 0
 	
 	def __init__(self):
 		#have to reset lists otherwise the variables accumulate
 		self.pos = []
 		self.v = []
 		self.pB = []
+		self.lB = []
 
 		for i in range(dmn):
 			self.pos.append(random.uniform(-searchRange, searchRange))
 			self.v.append(random.uniform(-1,1))
 			self.pB.append(self.pos[i])
 				
-	def updateV(self, localBest):
+	def updateV(self, Best):
 		for i in range(dmn):
 			r1 = random.random()
 			r2 = random.random()
-			social = c1 * r1 * (localBest[i] - self.pos[i])
+			social = c1 * r1 * (Best[i] - self.pos[i])
 			cognitive = c2 * r2 * (self.pB[i] - self.pos[i])
-			self.v[i] = w * (self.v[i] + social + cognitive)
-
+			if constricted:
+				#print "constricted"
+				self.v[i] = ki * (self.v[i] + social + cognitive)
+			elif not constricted:
+				#print "not constricted"
+				self.v[i] = w * self.v[i] + social + cognitive
+		
 	def updatePos(self):
 		self.pos = [x + y for x,y in zip(self.pos, self.v)]
 
@@ -75,20 +109,34 @@ class Drone:
 	def printPos(self):
 		return " pos: " + str(self.pos) + "\nvelo: " + str(self.v) + "\n\n\n"
 
-def particleSwarmOptimize(fitnessFunction, ringTop):
+def particleSwarmOptimize(fitnessFunction, ringTop, reIn):
+
+	global w
 	swarm = []
 	solution = []
 	pbResults = []
 	optimum = 99
 
 	for h in range(population):
-		swarm.append(Drone())
-		#print "drone " + str(h) + " OK"
-	#print "Swarm Generated"
+		#create drone and remember its neighbours
+		dr = Drone()
+		if h == 0:
+			dr.leftNeighbor = population - 1
+			dr.rightNeighbor = h + 1
+		if h == population - 1:
+			dr.leftNeighbor = h - 1
+			dr.rightNeighbor = 0
+		elif h > 0 and h < (population - 1):
+			dr.leftNeighbor = h - 1
+			dr.rightNeighbor = h + 1
+
+		swarm.append(dr)
+
 
 	#initialize the personal best results list, this is done here to reduce number of fitness tests we have to do
 	for drone in swarm:
 		pbResults.append(fitnessFunction(drone.pB))
+
 
 	#for each iteration
 	for i in range(maxIterations):
@@ -103,7 +151,7 @@ def particleSwarmOptimize(fitnessFunction, ringTop):
 		solution = swarm[pbResults.index(optimum)].pB
 
 		#randomize position of the global best particle to escape potential trap
-		if not ringTop:
+		if reIn:
 			swarm[pbResults.index(optimum)].reinitialize()
 
 		#acceptable conditions to end PSO
@@ -111,97 +159,180 @@ def particleSwarmOptimize(fitnessFunction, ringTop):
 			break
 
 		#for each drone index
-		for k in range(population):
-			#get the neighbor indexes
-			leftNeighbor = 0
-			rightNeighbor = 0
-			if k == 0:
-				leftNeighbor = population - 1
-				rightNeighbor = k + 1
-			if k == population - 1:
-				leftNeighbor = k - 1
-				rightNeighbor = 0
-			else:
-				leftNeighbor = k - 1
-				rightNeighbor = k + 1
+		if ringTop:
+			for k in range(population):
+			
+				#update and remember the local best
+				lbResult = pbResults[k]
+				lBest = swarm[k].pB
+				if lbResult > pbResults[swarm[k].leftNeighbor]:
+					lbResult = pbResults[swarm[k].leftNeighbor]
+					lBest = swarm[swarm[k].leftNeighbor].pB
+				if lbResult > pbResults[swarm[k].rightNeighbor]:
+					lBest = swarm[swarm[k].rightNeighbor].pB
+				swarm[k].lB = lBest
 
-			#update local best
-			lbResult = pbResults[k]
-			lBest = swarm[k].pB
-			if lbResult > pbResults[leftNeighbor]:
-				lbResult = pbResults[leftNeighbor]
-				lBest = swarm[leftNeighbor].pB
-			if lbResult > pbResults[rightNeighbor]:
-				lBest = swarm[rightNeighbor].pB
-
+		#for each drone index
+		for d in range(population):
 			#update velocity
 			if ringTop:
-				swarm[k].updateV(lBest)
+				swarm[d].updateV(swarm[d].lB)
 			elif not ringTop:
-				swarm[k].updateV(solution)
-			swarm[k].updatePos()
+				#print "not ringTop"
+				swarm[d].updateV(solution)
+			
+			
+			#update position
+			swarm[d].updatePos()
 
 			#update pbest
-			fitnessResult = fitnessFunction(swarm[k].pos)
-			if fitnessResult < pbResults[k]:
-				pbResults[k] = fitnessResult
-				swarm[k].pB = swarm[k].pos
+			fitnessResult = fitnessFunction(swarm[d].pos)
+			if fitnessResult < pbResults[d]:
+				pbResults[d] = fitnessResult
+				swarm[d].pB = swarm[d].pos
+
+		if not constricted:
+			step = 0.4/(maxIterations-1)
+			w = w - step
+			#print "w decreased to: " + str(w)
 
 	print "Total Iterations: " + str(i+1) 
 	return solution, i, optimum
 
-def strengthTest(fitnessFunction, testI, ringTop):
+def strengthTest(fitnessFunction, testI, ringTop, reIn, constrict):
 
 	global maxIterations
 	global dmn
 	global population
 	global acceptableThreshold
 	global deviation
+	global constricted
+	global w
 	intractible = False
 	testNumber = 0
-	f = open('psolog.txt', 'a')
-	funcStr = ""
+	
+	logname = fitnessFunction + str(ringTop) + str(reIn) + str(constrict) + ".txt"
+	f = open(logname, 'a')
 	conclusion = ""
-	dmn = 2
+	dmn = 10
+
+	dispatch={
+		'rastrigin': rastrigin,
+		'rosenBrock': rosenBrock,
+		'sphere' : sphere,
+		'ackley' : ackley,
+		'True' : True,
+		'False' : False
+	}
+
+	constricted = dispatch[constrict]
 
 	while not intractible:
 		testNumber += 1
-		headerStr = "Strength Test " + str(testNumber) + " for " + str(dmn) + " dimensions at 30 percent passing mark.\n"
-		topoStr = "Ring Topology: " + str(ringTop) + "\n"
-		if fitnessFunction == rosenBrock:
-			funcStr = "Fitness Function: RosenBrock\n"
-		elif fitnessFunction == rastrigin:
-			funcStr = "Fitness Function: Rastrigin\n"
+		headerStr = "Strength Test " + str(testNumber) + " for " + str(dmn) + " dimensions.\n"
+		topoStr = "Ring Topology: " + ringTop + "\n"
+		reinStr = "Reinitialization: " + reIn + "\n"
+		conStr = "Constricted: " + constrict + "\n"
+		funcStr = "Fitness Function: " + fitnessFunction + "\n"
 		iterations = []
 		failCases = []
+		optimums = []
 		fails = 0
+		
+		
 		for test in range(testI):
+			print "w end: " + str(w)
+			w = 0.8
+			print "w start: " + str(w)
 			print "Round: " + str(test+1)
-			answer, i, opt = particleSwarmOptimize(fitnessFunction, ringTop)
+			answer, i, opt = particleSwarmOptimize(dispatch[fitnessFunction], dispatch[ringTop], dispatch[reIn])
 			diff = opt - acceptableThreshold
+			optimums.append(opt)
 			if diff > deviation or diff < -deviation:
 				fails += 1
 				failCases.append(opt)
 			else:
 				iterations.append(i)
-			#print "Optimal Solution: " + str(answer) 
-			#print "Global Optimum: " + str(opt) + "\n"
+			print "Optimal Solution: " + str(answer) 
+			print "Global Optimum: " + str(opt) + "\n"
 		repHeader =  "Test Report for Dimensions:" + str(dmn) + ", MaxIterations:" + str(maxIterations) + " Swarm Population:" + str(population) + "\n"
 		avgStr =  "Average Iterations for successful cases: " + str(np.mean(iterations)) + "\n"
+		avgOpt = np.mean(optimums)
+		avgOptStr = "Average Global Minimums: " + str(avgOpt) + "\n"
 		failStr =  str(len(failCases)) + " cases trapped at: " + str(failCases) + "\n"
 		failRate = (fails/testI)*100
 		failRStr = "Fail Rate: " + str(failRate) + "%\n"
-		if failRate > 30:
+		if dmn > 30:
 			intractible = True
-			conclusion = "Fail rate too high, dimension may be intractible.\n\n"
+			conclusion = "max dimensions reached.\n\n"
 		else:
 			conclusion = "Optimization concluded successfully, increasing dimensions for greater challenge.\n\n"
-			dmn += 1
-		report = headerStr + topoStr + funcStr + repHeader + avgStr + failStr + failRStr + conclusion
+			dmn += 5
+		report = headerStr + topoStr + reinStr + conStr + funcStr + repHeader + avgStr + avgOptStr + failStr + failRStr + conclusion
 		print report
 		f.write(report)
+		
 	f.write("\nTest Segment Complete\n")
 	f.close()
+
+def permutate(fit):
+	
+	fitFunction = fit
+	'''
+	ringTopology = "False"
+	reInitialization = "False"
+	constricted = "False"
+
+	strengthTest(fitFunction, maxTestIterations, ringTopology, reInitialization, constricted)
+	'''
+
+	ringTopology = "False"
+	reInitialization = "True"
+	constricted = "False"
+
+	strengthTest(fitFunction, maxTestIterations, ringTopology, reInitialization, constricted)
+
+
+	ringTopology = "True"
+	reInitialization = "True"
+	constricted = "False"
+
+	strengthTest(fitFunction, maxTestIterations, ringTopology, reInitialization, constricted)
+
+	'''
+	ringTopology = "True"
+	reInitialization = "False"
+	constricted = "False"
+
+	strengthTest(fitFunction, maxTestIterations, ringTopology, reInitialization, constricted)
+
+	ringTopology = "False"
+	reInitialization = "False"
+	constricted = "True"
+
+	strengthTest(fitFunction, maxTestIterations, ringTopology, reInitialization, constricted)
+
+
+	ringTopology = "False"
+	reInitialization = "True"
+	constricted = "True"
+
+	strengthTest(fitFunction, maxTestIterations, ringTopology, reInitialization, constricted)
+
+
+	ringTopology = "True"
+	reInitialization = "True"
+	constricted = "True"
+
+	strengthTest(fitFunction, maxTestIterations, ringTopology, reInitialization, constricted)
+
+
+	ringTopology = "True"
+	reInitialization = "False"
+	constricted = "True"
+
+	strengthTest(fitFunction, maxTestIterations, ringTopology, reInitialization, constricted)
+	'''
 
 
 
@@ -209,8 +340,14 @@ def strengthTest(fitnessFunction, testI, ringTop):
 
 print "pso test v1.0\n"
 
-strengthTest(rastrigin, maxTestIterations, False)
-
-strengthTest(rosenBrock, maxTestIterations, False)
-
-
+if not auto:
+	fitFunction = sys.argv[1]
+	ringTopology = sys.argv[2]
+	reInitialization = sys.argv[3]
+	constricted = sys.argv[4]
+	strengthTest(fitFunction, maxTestIterations, ringTopology, reInitialization, constricted)
+elif auto:
+	permutate("rastrigin")
+	permutate("rosenBrock")
+	#permutate("sphere")
+	#permutate("ackley")
