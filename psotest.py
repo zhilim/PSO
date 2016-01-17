@@ -4,22 +4,23 @@ import sys
 import numpy as np
 import math
 
+global dmn, searchRange, c1, c2, ki, w, population, maxIterations, acceptableThreshold, deviation
 
-dmn = 2
 searchRange = 10
 c1 = c2 = 2.05
 ki = 0.7298
-w = 0.8
+w = 0.9
 population = 30
-maxIterations = 400000
-acceptableThreshold = 0
+maxIterations = 3000
+acceptableThreshold = -0.9
 deviation = 0.000001
 maxTestIterations = 30
 auto = False
 constricted = False
+valueConstrain = 10
 
-if sys.argv[1] == "automate":
-	auto = True
+#if sys.argv[1] == "automate":
+	#auto = True
 
 
 print sys.argv
@@ -94,17 +95,25 @@ class Drone:
 			elif not constricted:
 				#print "not constricted"
 				self.v[i] = w * self.v[i] + social + cognitive
+
 		
-	def updatePos(self):
+	def updatePos(self):	
 		self.pos = [x + y for x,y in zip(self.pos, self.v)]
+		
+
+
+
+
 
 	def reinitialize(self):
 		self.pos = []
 		self.v = []
+		self.pB = []
 
 		for i in range(dmn):
 			self.pos.append(random.uniform(-searchRange, searchRange))
 			self.v.append(random.uniform(-1,1))
+			self.pB.append(self.pos[i])
 
 	def printPos(self):
 		return " pos: " + str(self.pos) + "\nvelo: " + str(self.v) + "\n\n\n"
@@ -112,10 +121,12 @@ class Drone:
 def particleSwarmOptimize(fitnessFunction, ringTop, reIn):
 
 	global w
+	w = 0.9
 	swarm = []
 	solution = []
 	pbResults = []
-	optimum = 99
+	optimum = 99999
+	globalOpt = 99999
 
 	for h in range(population):
 		#create drone and remember its neighbours
@@ -141,21 +152,25 @@ def particleSwarmOptimize(fitnessFunction, ringTop, reIn):
 	#for each iteration
 	for i in range(maxIterations):
 		#logging
-		sys.stdout.write("Iteration: %d    \r" % (i+1))
-		sys.stdout.flush()
+		
 		
 		#get global minimum result from pb results list
 		optimum = min(pbResults)
+		
 
 		#get the actual vector of answers
-		solution = swarm[pbResults.index(optimum)].pB
+		#solution = swarm[pbResults.index(optimum)].pB
+
+		
 
 		#randomize position of the global best particle to escape potential trap
-		if reIn:
-			swarm[pbResults.index(optimum)].reinitialize()
+		#if reIn:
+			#swarm[pbResults.index(optimum)].reinitialize()
 
 		#acceptable conditions to end PSO
-		if (optimum < (acceptableThreshold + deviation)) & (optimum > (acceptableThreshold - deviation)):
+		#if (optimum < (acceptableThreshold + deviation)) & (optimum > (acceptableThreshold - deviation)):
+		if optimum < acceptableThreshold:
+			globalOpt = optimum
 			break
 
 		#for each drone index
@@ -171,6 +186,20 @@ def particleSwarmOptimize(fitnessFunction, ringTop, reIn):
 				if lbResult > pbResults[swarm[k].rightNeighbor]:
 					lBest = swarm[swarm[k].rightNeighbor].pB
 				swarm[k].lB = lBest
+
+		if globalOpt >= optimum:
+			print "global optimum being replaced.."
+			globalOpt = optimum
+			solution = swarm[pbResults.index(optimum)].pB
+			if reIn:
+				print "Reinitializing"
+				swarm[pbResults.index(optimum)].reinitialize()
+				pbResults[pbResults.index(optimum)] = fitnessFunction(swarm[pbResults.index(optimum)].pB)
+
+		print "Iteration: " + str(i+1) + " and Local Optimum: " + str(optimum)
+		print "GlobalOpt: " + str(globalOpt)
+		print str(solution)
+
 
 		#for each drone index
 		for d in range(population):
@@ -192,12 +221,13 @@ def particleSwarmOptimize(fitnessFunction, ringTop, reIn):
 				swarm[d].pB = swarm[d].pos
 
 		if not constricted:
-			step = 0.4/(maxIterations-1)
-			w = w - step
+			step = 0.5/maxIterations
+			if w > 0.4:
+				w = w - step
 			#print "w decreased to: " + str(w)
 
 	print "Total Iterations: " + str(i+1) 
-	return solution, i, optimum
+	return solution, i, globalOpt
 
 def strengthTest(fitnessFunction, testI, ringTop, reIn, constrict):
 
@@ -248,7 +278,7 @@ def strengthTest(fitnessFunction, testI, ringTop, reIn, constrict):
 			answer, i, opt = particleSwarmOptimize(dispatch[fitnessFunction], dispatch[ringTop], dispatch[reIn])
 			diff = opt - acceptableThreshold
 			optimums.append(opt)
-			if diff > deviation or diff < -deviation:
+			if opt != 0:
 				fails += 1
 				failCases.append(opt)
 			else:
@@ -262,7 +292,7 @@ def strengthTest(fitnessFunction, testI, ringTop, reIn, constrict):
 		failStr =  str(len(failCases)) + " cases trapped at: " + str(failCases) + "\n"
 		failRate = (fails/testI)*100
 		failRStr = "Fail Rate: " + str(failRate) + "%\n"
-		if dmn > 30:
+		if dmn > 9:
 			intractible = True
 			conclusion = "max dimensions reached.\n\n"
 		else:
@@ -278,7 +308,7 @@ def strengthTest(fitnessFunction, testI, ringTop, reIn, constrict):
 def permutate(fit):
 	
 	fitFunction = fit
-	'''
+	
 	ringTopology = "False"
 	reInitialization = "False"
 	constricted = "False"
@@ -306,6 +336,7 @@ def permutate(fit):
 
 	strengthTest(fitFunction, maxTestIterations, ringTopology, reInitialization, constricted)
 
+	'''
 	ringTopology = "False"
 	reInitialization = "False"
 	constricted = "True"
@@ -337,7 +368,7 @@ def permutate(fit):
 
 
 
-
+'''
 print "pso test v1.0\n"
 
 if not auto:
@@ -348,6 +379,7 @@ if not auto:
 	strengthTest(fitFunction, maxTestIterations, ringTopology, reInitialization, constricted)
 elif auto:
 	permutate("rastrigin")
-	permutate("rosenBrock")
+	#permutate("rosenBrock")
 	#permutate("sphere")
 	#permutate("ackley")
+'''
